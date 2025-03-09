@@ -1,24 +1,107 @@
-            - name: OpenWrt ImageBuilder
-  # You may pin to the exact commit or the version.
-  # uses: izer-xyz/openwrt-imagebuilder-action@18c85145390e2a416a6a05d15e417cb722c46c28
-  uses: izer-xyz/openwrt-imagebuilder-action@v6
-  with:
-    # Specifies the imagebuilder tag
-    image: # default is bcm27xx-bcm2711
-    # Specifies the target image to build - PROFILE
-    profile: # optional, default is 
-    # OpenWrt version
-    openwrt-version: # default is master
-    # A list of packages to embed into the image - PACKAGES
-    packages: # optional, default is 
-    # Directory with custom files to include - FILES
-    files: # optional, default is files
-    # The names of services from /etc/init.d to disable, e.g. dhcp for dnsmasq - DISABLED_SERVICES
-    disabled-services: # optional, default is 
-    # Alternative output directory for the images - BIN_DIR
-    bin-dir: # optional, default is bin
-    # Override the default rootfs partition size in MegaBytes - ROOTFS_PARTSIZE
-    rootfs-size: # optional, default is 
-    # Set to "1" to enable additional debug info like the content of .config
-    debug: # optional, default is 
-          
+name: OpenWrt Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential libncurses5-dev libssl-dev gawk flex quilt git unzip wget python3 python3-distutils rsync bc
+
+      - name: Prepare environment
+        run: |
+          # 获取build.config 文件地址
+          build_config_path=$(find ./config -name "build.config" -print -quit)
+
+          # 判断文件是否存在
+          if [ -f "$build_config_path" ]; then
+              echo "build.config存在"
+              # 读取build.config 文件
+              source "$build_config_path"
+          else
+              echo "未找到 build.config 文件"
+              exit 1
+          fi
+
+          # 克隆openwrt仓库
+          git clone $OPENWRT_REPO openwrt
+          cd openwrt
+          git checkout $OPENWRT_BRANCH
+
+      - name: Customize Image
+        run: |
+          cd openwrt
+          # 执行准备配置脚本
+          chmod +x ../scripts/prepare_config.sh
+          ../scripts/prepare_config.sh
+
+          # 添加插件
+          chmod +x ../scripts/add_plugins.sh
+          ../scripts/add_plugins.sh
+
+          # 替换 dts 文件 (如果存在)
+          if [ -f "../dts/your_device.dts" ]; then
+            cp ../dts/your_device.dts target/linux/${TARGET_ARCH}/files/arch/${TARGET_ARCH}/boot/dts/
+          fi
+
+          # 执行其他定制脚本
+          chmod +x ../scripts/customize.sh
+          ../scripts/customize.sh
+      - name: Build Image
+        run: |
+          cd openwrt
+          make -j$(nproc) V=s
+
+      - name: Find Images
+        run: |
+          cd openwrt
+          find bin/targets -name "*squashfs*" -print > images.txt
+          find bin/targets -name "*sdk*" -print >> images.txt
+          find bin/targets -name "*toolchain*" -print >> images.txt
+          find bin/targets -name "*imagebuilder*" -print >> images.txt
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: openwrt-images
+          path: openwrt/bin/targets
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
+        with:
+          tag_name: ${{ github.run_number }}
+          release_name: Release ${{ github.run_number }}
+          body: |
+            OpenWrt Images built from ${{ github.sha }}
+            Commit: ${{ github.event.head_commit.message }}
+          draft: false
+          prerelease: false
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions#passing-data-between-jobs
+          asset_path: ./openwrt/bin/targets
+          asset_name: openwrt-image.tar.gz
+          asset_content_type: application/gzip
+      - name: Clean Old Releases
+        run: |
+          gh release list --limit 5 | tail -n +6 | awk '{print $1}' | while read tag; do
+            gh release delete "$tag" --yes
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
