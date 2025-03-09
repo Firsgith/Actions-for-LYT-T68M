@@ -1,0 +1,24 @@
+            - name: OpenWrt ImageBuilder
+  # You may pin to the exact commit or the version.
+  # uses: izer-xyz/openwrt-imagebuilder-action@18c85145390e2a416a6a05d15e417cb722c46c28
+  uses: izer-xyz/openwrt-imagebuilder-action@v6
+  with:
+    # Specifies the imagebuilder tag
+    image: # default is bcm27xx-bcm2711
+    # Specifies the target image to build - PROFILE
+    profile: # optional, default is 
+    # OpenWrt version
+    openwrt-version: # default is master
+    # A list of packages to embed into the image - PACKAGES
+    packages: # optional, default is 
+    # Directory with custom files to include - FILES
+    files: # optional, default is files
+    # The names of services from /etc/init.d to disable, e.g. dhcp for dnsmasq - DISABLED_SERVICES
+    disabled-services: # optional, default is 
+    # Alternative output directory for the images - BIN_DIR
+    bin-dir: # optional, default is bin
+    # Override the default rootfs partition size in MegaBytes - ROOTFS_PARTSIZE
+    rootfs-size: # optional, default is 
+    # Set to "1" to enable additional debug info like the content of .config
+    debug: # optional, default is 
+          
